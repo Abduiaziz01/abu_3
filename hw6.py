@@ -1,52 +1,155 @@
-from aiogram import Bot, Dispatcher, types, executor
-from aiogram.types import InlineKeyboardButton
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram import Dispatcher, Bot, executor, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from dotenv import load_dotenv
+from aiogram.dispatcher import FSMContext
 from bs4 import BeautifulSoup
-from logging import basicConfig, INFO
-import os, requests 
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+import logging
+import os
+import requests
 
 load_dotenv('.env')
 
-bot = Bot(os.environ.get('Token'))
-dp = Dispatcher(bot)
-basicConfig(level=INFO)
+bot = Bot(token=os.environ.get('token'))
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
+logging.basicConfig(level=logging.INFO)
 
-start_keyboards = [
-    InlineKeyboardButton("USD/KGS"),
-    InlineKeyboardButton("EUR/KGS"),
-    InlineKeyboardButton("RUB/KGS"),
-    InlineKeyboardButton("KZT/KGS")
+
+currency_buttons = [
+    InlineKeyboardButton('USD', callback_data="usd"),
+    InlineKeyboardButton('EUR', callback_data="eur"),
+    InlineKeyboardButton('RUB', callback_data="rub"),
+    InlineKeyboardButton('KZT', callback_data="kzt"),
 ]
-start_button = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*start_keyboards)
+currency_keyboard = InlineKeyboardMarkup().add(*currency_buttons)
 
-@dp.message_handler(commands='start')
-async def start(message:types.Message):
-    await message.answer(f"""Привет {message.from_user.full_name}!
-Я бот для обмена валюты""", reply_markup=start_button)
+class Money(StatesGroup):
+    money = State()
+
+@dp.callback_query_handler(lambda call: call.data == "usd")
+async def handle_usd_callback(call: types.CallbackQuery, state: FSMContext):
+    await usd(call.message, state)
+
+@dp.message_handler(commands="start")
+async def start(message: types.Message):
+    await message.answer("Здравствуйте! Я бот, который обменяет ваши деньги. Введите кол-во денег")
+    await Money.money.set()
+
+@dp.message_handler(commands="currency")
+async def currency(message: types.Message):
+    await message.answer("Теперь выберите валюту для обмена", reply_markup=currency_keyboard)
+
+@dp.message_handler(state=Money.money)
+async def money(message: types.Message, state: FSMContext):
+    await state.update_data(money=message.text)
+    await message.answer("Значение сохранено. Выберите валюту для обмена.", reply_markup=currency_keyboard)
+    await Money.next()
+
+
+@dp.message_handler(commands="usd", state=Money.money)
+async def usd(message: types.Message, state: FSMContext):
     url = 'https://www.nbkr.kg/index.jsp?lang=RUS'
-
     response = requests.get(url=url)
-    print(response)
     soup = BeautifulSoup(response.text, 'lxml')
-    all_currencies = soup.find_all('td', class_='excurr')
-    print(all_currencies)
-    all_changes = soup.find_all('td', class_='exrate')
-    print(all_changes)
+    currencies = soup.find_all('td', class_='exrate')
+    usd = float(currencies[0].text.replace(',', '.'))
 
-@dp.message_handler(text='USD/KGS')
-async def change1(message:types.Message):
-    await message.answer("100 - 8932")
+    data = await state.get_data()
+    money = data.get('money')
 
-@dp.message_handler(text='EUR/KGS')
-async def change2(message:types.Message):
-    await message.answer("100 - 9411")
+    if money is not None:
+        try:
+            money = float(money)
+            result = money * usd
+            await message.answer(f"Результат: {result}")
+        except ValueError:
+            await message.answer("Введено некорректное значение денег")
+    else:
+        await message.answer("Не удалось получить значение денег")
 
-@dp.message_handler(text='RUB/KGS')
-async def change3(message:types.Message):
-    await message.answer("100 - 92")
+    await state.finish()
 
-@dp.message_handler(text='KZT/KGS')
-async def change4(message:types.Message):
-    await message.answer("100 - 19")
+@dp.callback_query_handler(lambda call: call.data == "eur")
+async def handle_eur_callback(call: types.CallbackQuery, state: FSMContext):
+    await eur(call.message, state)
 
-executor.start_polling(dp, skip_updates=True)
+@dp.message_handler(commands="eur", state=Money.money)
+async def eur(message: types.Message, state: FSMContext):
+    url = 'https://www.nbkr.kg/index.jsp?lang=RUS'
+    response = requests.get(url=url)
+    soup = BeautifulSoup(response.text, 'lxml')
+    currencies = soup.find_all('td', class_='exrate')
+    eur = float(currencies[2].text.replace(',', '.'))
+
+    data = await state.get_data()
+    money = data.get('money')
+
+    if money is not None:
+        try:
+            money = float(money)
+            result = money * eur
+            await message.answer(f"Результат: {result}")
+        except ValueError:
+            await message.answer("Введено некорректное значение денег")
+    else:
+        await message.answer("Не удалось получить значение денег")
+
+    await state.finish()
+
+@dp.callback_query_handler(lambda call: call.data == "rub")
+async def handle_rub_callback(call: types.CallbackQuery, state: FSMContext):
+    await rub(call.message, state)
+
+@dp.message_handler(commands="rub", state=Money.money)
+async def rub(message: types.Message, state: FSMContext):
+    url = 'https://www.nbkr.kg/index.jsp?lang=RUS'
+    response = requests.get(url=url)
+    soup = BeautifulSoup(response.text, 'lxml')
+    currencies = soup.find_all('td', class_='exrate')
+    rub = float(currencies[4].text.replace(',', '.'))
+
+    data = await state.get_data()
+    money = data.get('money')
+
+    if money is not None:
+        try:
+            money = float(money)
+            result = money * rub
+            await message.answer(f"Результат: {result}")
+        except ValueError:
+            await message.answer("Введено некорректное значение денег")
+    else:
+        await message.answer("Не удалось получить значение денег")
+
+    await state.finish()
+
+@dp.callback_query_handler(lambda call: call.data == "kzt")
+async def handle_kzt_callback(call: types.CallbackQuery, state: FSMContext):
+    await kzt(call.message, state)
+
+@dp.message_handler(commands="kzt", state=Money.money)
+async def kzt(message: types.Message, state: FSMContext):
+    url = 'https://www.nbkr.kg/index.jsp?lang=RUS'
+    response = requests.get(url=url)
+    soup = BeautifulSoup(response.text, 'lxml')
+    currencies = soup.find_all('td', class_='exrate')
+    kzt = float(currencies[6].text.replace(',', '.'))
+
+    data = await state.get_data()
+    money = data.get('money')
+
+    if money is not None:
+        try:
+            money = float(money)
+            result = money * kzt
+            await message.answer(f"Результат: {result}")
+        except ValueError:
+            await message.answer("Введено некорректное значение денег")
+    else:
+        await message.answer("Не удалось получить значение денег")
+
+    await state.finish()
+
+executor.start_polling(dp)
